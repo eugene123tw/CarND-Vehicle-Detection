@@ -8,12 +8,13 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
+from scipy.ndimage.measurements import label
 
 from dataset import ImageDataset, DataLoader
 from feature_utilities import get_hog_features, bin_spatial, color_hist
 
 CSPACE = 'HLS'
-PIX_PER_CELL = 8
+PIX_PER_CELL = 4
 CELL_PER_BLOCK = 2
 ORIENT = 9
 SPATIAL_SIZE = (32, 32)
@@ -40,6 +41,39 @@ def convert_color(img, conv='RGB'):
         return cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     if conv == 'YUV':
         return cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+
+
+def add_heat(heatmap, bbox_list):
+    # Iterate through list of bboxes
+    for box in bbox_list:
+        # Add += 1 for all pixels inside each bbox
+        # Assuming each "box" takes the form ((x1, y1), (x2, y2))
+        heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+
+    # Return updated heatmap
+    return heatmap  # Iterate through list of bboxes
+
+
+def apply_threshold(heatmap, threshold):
+    # Zero out pixels below the threshold
+    heatmap[heatmap <= threshold] = 0
+    # Return thresholded map
+    return heatmap
+
+def draw_labeled_bboxes(img, labels):
+    # Iterate through all detected cars
+    for car_number in range(1, labels[1]+1):
+        # Find pixels with each car_number label value
+        nonzero = (labels[0] == car_number).nonzero()
+        # Identify x and y values of those pixels
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        # Define a bounding box based on min/max x and y
+        bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+        # Draw the box on the image
+        cv2.rectangle(img, bbox[0], bbox[1], (0,0,255), 6)
+    # Return the image
+    return img
 
 def train(save=False):
 
@@ -100,6 +134,7 @@ def prediction(img, estimator, scalar, ystart_ystop=[None, None], scale=1):
     # load a pe-trained svc model from a serialized (pickle) file
     svc = estimator
     X_scaler = scalar
+    bboxs = []
 
     draw_img = np.copy(img)
 
@@ -136,13 +171,16 @@ def prediction(img, estimator, scalar, ystart_ystop=[None, None], scale=1):
     nxsteps = (nxblocks - nblocks_per_window) // cells_per_step + 1
     nysteps = (nyblocks - nblocks_per_window) // cells_per_step + 1
 
+
+
+
     # Compute individual channel HOG features for the entire image
     hog1 = get_hog_features(ch1, ORIENT, PIX_PER_CELL, CELL_PER_BLOCK, feature_vec=False)
     hog2 = get_hog_features(ch2, ORIENT, PIX_PER_CELL, CELL_PER_BLOCK, feature_vec=False)
     hog3 = get_hog_features(ch3, ORIENT, PIX_PER_CELL, CELL_PER_BLOCK, feature_vec=False)
 
-    for xb in np.arange(nxsteps, step=2):
-        for yb in np.arange(nysteps, step=2):
+    for xb in np.arange(nxsteps):
+        for yb in np.arange(nysteps):
             ypos = yb * cells_per_step
             xpos = xb * cells_per_step
             # Extract HOG for this patch
@@ -171,20 +209,42 @@ def prediction(img, estimator, scalar, ystart_ystop=[None, None], scale=1):
                 xbox_left = np.int(xleft * scale)
                 ytop_draw = np.int(ytop * scale)
                 win_draw = np.int(window * scale)
+
+                # (x1, y1, x2, y2)
+                bboxs.append([xbox_left, ytop_draw + ystart, xbox_left + win_draw, ytop_draw + win_draw + ystart])
                 cv2.rectangle(draw_img, (xbox_left, ytop_draw + ystart),
                               (xbox_left + win_draw, ytop_draw + win_draw + ystart), (0, 0, 255), 6)
 
     plt.imshow(draw_img)
     plt.show()
 
+    return bboxs
+
+
 
 if __name__ == '__main__':
 
 
-    train(save=True)
+    # train(save=True)
 
-    # test_images = [np.array(Image.open(path)) for path in glob.glob('test_images/*.jpg')]
-    # svc = joblib.load('svc_HLS.pkl')
-    # X_scaler = joblib.load('scaler.pkl')
-    # for test_img in test_images:
-    #     prediction(test_img, estimator=svc, scalar=X_scaler, ystart_ystop=[350, 550], scale=1.2)
+    test_images = [np.array(Image.open(path)) for path in glob.glob('test_images/*.jpg')]
+    svc = joblib.load('svc_HLS.pkl')
+    X_scaler = joblib.load('scaler.pkl')
+    for test_img in test_images:
+        prediction(test_img, estimator=svc, scalar=X_scaler, ystart_ystop=[350, 550], scale=1)
+
+    # # Create zero image
+    # heat = np.zeros_like(image[:, :, 0]).astype(np.float)
+    #
+    # # Add heat to each box in box list
+    # heat = add_heat(heat, bboxs)
+    #
+    # # Apply threshold to help remove false positives
+    # heat = apply_threshold(heat, 1)
+    #
+    # # Visualize the heatmap when displaying
+    # heatmap = np.clip(heat, 0, 255)
+    #
+    # # Find final boxes from heatmap using label function
+    # labels = label(heatmap)
+    # draw_img = draw_labeled_bboxes(np.copy(image), labels)

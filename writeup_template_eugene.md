@@ -57,7 +57,7 @@ I tried various combinations of parameters and...
 
 #### 3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
 
-I applied grid search finding the best penalty parameter C and kernel empirically among `parameters = {'kernel':('linear', 'rbf'), 'C':range(1, 11)}`. After grid search I retrieved `clf.best_params_ = {'kernel':'rbf', 'C':2}` as SVC parameters. 
+I applied grid search to find the best penalty parameter and kernel method among `parameters = {'kernel':('linear', 'rbf'), 'C':range(1, 11)}`. After grid search I retrieved `clf.best_params_ = {'kernel':'rbf', 'C':2}` as SVC parameters. I also 
 
 Then I random shuffled vehicles and non-vehicles images and split images into training and testing set. My training dataset included 80% of all images and 20% for testing or validation.
 
